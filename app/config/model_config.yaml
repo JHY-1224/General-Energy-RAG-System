@@ -1,0 +1,23 @@
+embeddings:
+  default: bge-large-zh
+  providers:
+    - huggingface-local
+    - bge-large-zh
+    - qwen-embedding
+    - openai
+    - dashscope
+vectorstores:
+  default: chroma
+  providers:
+    - chroma
+    - faiss
+    - qdrant
+    - pgvector
+    - milvus
+rerankers:
+  default: bge-reranker-v2-m3
+  providers:
+    - score-fallback
+    - bge-reranker-v2-m3
+    - qwen-reranker
+    - llm-rerank

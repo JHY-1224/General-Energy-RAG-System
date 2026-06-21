@@ -136,12 +136,10 @@ export const demoState = {
 };
 
 export const apiSections = [
-  { group: 'Document API', items: ['POST /api/v1/documents/upload', 'GET /api/v1/documents', 'GET /api/v1/documents/{document_id}', 'GET /api/v1/documents/{document_id}/raw', 'GET /api/v1/documents/{document_id}/parsed-text', 'DELETE /api/v1/documents/{document_id}'] },
-  { group: 'Chunk API', items: ['GET /api/v1/chunks', 'GET /api/v1/chunks/{chunk_id}', 'POST /api/v1/chunks/upsert', 'PUT /api/v1/chunks/{chunk_id}', 'DELETE /api/v1/chunks/{chunk_id}', 'GET /api/v1/documents/{document_id}/chunks'] },
-  { group: 'Metadata API', items: ['GET /api/v1/metadata/domains', 'GET /api/v1/metadata/doc-types', 'GET /api/v1/metadata/variables', 'GET /api/v1/metadata/fault-types', 'GET /api/v1/metadata/scenarios'] },
-  { group: 'Retrieval API', items: ['POST /api/v1/retrieval/search', 'POST /api/v1/retrieval/hybrid-search', 'POST /api/v1/retrieval/rerank'] },
-  { group: 'Context Package API', items: ['POST /api/v1/context/build'] },
-  { group: 'Evaluation API', items: ['GET /api/v1/eval/datasets', 'POST /api/v1/eval/datasets', 'POST /api/v1/eval/run', 'GET /api/v1/eval/runs', 'GET /api/v1/eval/runs/{run_id}', 'GET /api/v1/eval/runs/{run_id}/failures'] },
+  { group: 'Document API', items: ['POST /api/documents/upload', 'GET /api/documents', 'POST /api/documents/{document_id}/process', 'DELETE /api/documents/{document_id}', 'POST /api/v2/ingest'] },
+  { group: 'Config API', items: ['GET /api/v2/config/options', 'GET /api/vector-index', 'GET /api/state'] },
+  { group: 'Query & Trace API', items: ['POST /api/v2/query/test', 'GET /api/v2/traces/{trace_id}', 'POST /api/retrieval/search', 'POST /api/context/build'] },
+  { group: 'Evaluation API', items: ['POST /api/v2/eval/run', 'POST /api/v2/eval/upload', 'GET /api/v2/eval/reports/{filename}', 'POST /api/v2/experiments/run'] },
 ];
 
 export const contextApiExample = {
@@ -171,9 +169,9 @@ export const contextApiExample = {
 };
 
 export const sdkExamples = [
-  { title: 'LangChain 调用 Context API', code: `context = requests.post("/api/v1/context/build", json=payload).json()\nanswer = llm.invoke(context["context_text"] + "\\n" + question)` },
-  { title: 'LangGraph retrieve_node', code: `def retrieve_node(state):\n    context = client.build_context(state["question"])\n    return {"context": context}` },
-  { title: 'LlamaIndex 加载 Chunk API', code: `nodes = [TextNode(text=c["chunk_content"], metadata=c) for c in client.list_chunks()]\nindex = VectorStoreIndex(nodes)` },
+  { title: '可配置单问题测试', code: `trace = requests.post("http://127.0.0.1:8000/api/v2/query/test", json={\n  "question": "塔架一阶共振怎么判断？",\n  "options": {"retrieval_mode": "hybrid", "rerank": True, "compression": True}\n}).json()` },
+  { title: '批量评测与报告', code: `report = requests.post("http://127.0.0.1:8000/api/v2/eval/run", json={\n  "eval_set": "data/eval_sets/energy_rag_eval.jsonl",\n  "experiment_name": "hybrid_parent_rerank"\n}).json()` },
+  { title: 'CLI 实验对比', code: `python -m app.main experiment --config app/config/experiment_config.yaml` },
 ];
 
 export const chatScenes = [

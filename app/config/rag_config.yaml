@@ -1,0 +1,37 @@
+embedding: bge-large-zh
+vectorstore: chroma
+ingest:
+  directory: data/raw
+  splitter: parent_child
+  chunk_size: 700
+  chunk_overlap: 120
+indexing:
+  vector: true
+  bm25: true
+  hybrid: true
+  metadata: true
+  parent_child: true
+  summary: false
+pre_retrieval:
+  query_rewrite: true
+  query_expansion: true
+  query_transformation: true
+  metadata_router: true
+  multi_query: false
+  hyde: false
+retrieval:
+  mode: hybrid
+  top_k: 10
+  vector_weight: 0.7
+  bm25_weight: 0.3
+post_retrieval:
+  rerank: true
+  reranker_model: score-fallback
+  compression: true
+  compression_mode: auto
+  deduplicate: true
+  filter: true
+  parent_recovery: true
+  rag_fusion: false
+generation:
+  final_context_top_k: 5

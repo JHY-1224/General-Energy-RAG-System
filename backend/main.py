@@ -687,6 +687,9 @@ def process_document(document_id: str, payload: ProcessDocumentRequest):
     CHUNKS = [item for item in CHUNKS if item["document_id"] != document_id]
     generated_chunks = build_chunks_for_document(document, payload)
     CHUNKS = generated_chunks + CHUNKS
+    from app.api.dependencies import sync_legacy_document
+
+    sync_legacy_document(document_id, generated_chunks)
     document.update(
         {
             "status": "indexed",
@@ -723,6 +726,9 @@ def delete_document(document_id: str):
     global DOCUMENTS, CHUNKS
     DOCUMENTS = [item for item in DOCUMENTS if item["document_id"] != document_id]
     CHUNKS = [item for item in CHUNKS if item["document_id"] != document_id]
+    from app.api.dependencies import engine
+
+    engine.remove_document(document_id)
     local_path = document.get("local_path")
     if local_path:
         path = Path(local_path)
@@ -805,4 +811,11 @@ def reports():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    import sys
+
+    project_root = str(Path(__file__).resolve().parents[1])
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from app.main import app as modular_app
+
+    uvicorn.run(modular_app, host="127.0.0.1", port=8000)

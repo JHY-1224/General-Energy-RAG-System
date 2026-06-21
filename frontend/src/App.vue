@@ -63,6 +63,29 @@ const retrievalQuery = ref('AccY 超限一般可能对应哪些风机振动问�
 const retrievalMode = ref('hybrid_rerank');
 const retrievalDomain = ref('all');
 const retrievalDocType = ref('all');
+const retrievalEmbedding = ref('bge-large-zh');
+const retrievalVectorstore = ref('chroma');
+const vectorWeight = ref(0.7);
+const bm25Weight = ref(0.3);
+const useQueryRewrite = ref(true);
+const useQueryExpansion = ref(true);
+const useQueryTransformation = ref(true);
+const useMetadataRouter = ref(true);
+const useMultiQuery = ref(false);
+const useHyde = ref(false);
+const useCompression = ref(true);
+const compressionMode = ref('auto');
+const useDeduplicate = ref(true);
+const useParentRecovery = ref(true);
+const useRagFusion = ref(false);
+const retrievalTrace = ref(null);
+const retrievalRunning = ref(false);
+const evalRunning = ref(false);
+const evalResult = ref(null);
+const evalSelectedFile = ref(null);
+const evalSetPath = ref('data/eval_sets/energy_rag_eval.jsonl');
+const evalUploadMessage = ref('');
+const evalExperimentPreset = ref('current');
 const retrievalResult = ref({
   query: retrievalQuery.value,
   mode: retrievalMode.value,
@@ -246,20 +269,31 @@ async function loadBackendData() {
 }
 
 async function runRetrieval() {
-  const payload = {
-    query: retrievalQuery.value,
-    mode: retrievalMode.value,
-    domain: retrievalDomain.value,
-    doc_type: retrievalDocType.value,
-    vector_top_k: Number(vectorTopK.value),
-    final_top_k: Number(finalTopK.value),
-    enable_rerank: enableRerank.value,
-  };
+  retrievalRunning.value = true;
+  const payload = { question: retrievalQuery.value, options: currentQueryOptions() };
   try {
-    retrievalResult.value = await apiPost('/api/retrieval/search', payload);
+    const trace = await apiPost('/api/v2/query/test', payload);
+    retrievalTrace.value = trace;
+    retrievalResult.value = {
+      query: trace.original_query,
+      mode: trace.retrieval_mode,
+      items: trace.reranked_docs.map((item) => ({
+        ...item,
+        rank: item.final_rank,
+        originalRank: item.original_rank,
+        finalRank: item.final_rank,
+        chunk_content: item.content,
+        domain: item.metadata?.domain,
+        doc_type: item.metadata?.doc_type,
+        source_file: item.metadata?.source,
+        variables: item.metadata?.variables || [],
+        citation_id: item.chunk_id,
+      })),
+      citationChain: ['Original Query', 'Pre Retrieval', 'Retriever', 'Rerank', 'Compression', 'Answer'],
+    };
     apiOnline.value = true;
     apiMessage.value = 'FastAPI 后端已连接';
-  } catch {
+  } catch (error) {
     retrievalResult.value = {
       query: retrievalQuery.value,
       mode: retrievalMode.value,
@@ -267,8 +301,135 @@ async function runRetrieval() {
       citationChain: ['回答', '引用 Chunk', '源文档', '知识域', 'metadata'],
     };
     apiOnline.value = false;
-    apiMessage.value = '后端未连接，检索结果来自本地 Demo 数据';
+    apiMessage.value = `v2 检索失败：${error.message}`;
+  } finally {
+    retrievalRunning.value = false;
   }
+}
+
+function currentQueryOptions() {
+  const domainMap = {
+    wind_oam: '风电故障诊断',
+    load_forecast: '区域负荷预测',
+    storage_ems: '储能EMS',
+    calc_logic: '电气工程基础',
+    report_template: '电气工程基础',
+  };
+  return {
+    embedding: retrievalEmbedding.value,
+    vectorstore: retrievalVectorstore.value,
+    retrieval_mode: retrievalMode.value === 'hybrid_rerank' ? 'hybrid' : retrievalMode.value,
+    top_k: Number(vectorTopK.value),
+    final_top_k: Number(finalTopK.value),
+    vector_weight: Number(vectorWeight.value),
+    bm25_weight: Number(bm25Weight.value),
+    query_rewrite: useQueryRewrite.value,
+    query_expansion: useQueryExpansion.value,
+    query_transformation: useQueryTransformation.value,
+    metadata_router: useMetadataRouter.value,
+    multi_query: useMultiQuery.value,
+    hyde: useHyde.value,
+    rerank: enableRerank.value,
+    reranker_model: rerankModel.value,
+    compression: useCompression.value,
+    compression_mode: compressionMode.value,
+    deduplicate: useDeduplicate.value,
+    document_filter: true,
+    parent_recovery: useParentRecovery.value,
+    rag_fusion: useRagFusion.value,
+    metadata_filter: {
+      ...(retrievalDomain.value === 'all' ? {} : { domain: domainMap[retrievalDomain.value] }),
+      ...(retrievalDocType.value === 'all' ? {} : { doc_type: retrievalDocType.value }),
+    },
+  };
+}
+
+async function runBatchEvaluation() {
+  evalRunning.value = true;
+  try {
+    evalResult.value = await apiPost('/api/v2/eval/run', {
+      eval_set: evalSetPath.value,
+      experiment_name: `ui_${evalExperimentPreset.value}`,
+      options: evaluationQueryOptions(),
+    });
+    apiOnline.value = true;
+    apiMessage.value = '批量评测完成';
+  } catch (error) {
+    apiMessage.value = `批量评测失败：${error.message}`;
+  } finally {
+    evalRunning.value = false;
+  }
+}
+
+function evaluationQueryOptions() {
+  const options = currentQueryOptions();
+  const presets = {
+    vector_bge: {
+      retrieval_mode: 'vector',
+      query_rewrite: false,
+      query_expansion: false,
+      metadata_router: false,
+      rerank: false,
+      compression: false,
+    },
+    hybrid_bge_metadata: {
+      retrieval_mode: 'hybrid',
+      query_rewrite: true,
+      query_expansion: true,
+      metadata_router: true,
+      rerank: false,
+      compression: false,
+    },
+    hybrid_parent_rerank_compress: {
+      retrieval_mode: 'parent_child',
+      query_rewrite: true,
+      query_expansion: true,
+      metadata_router: true,
+      rerank: true,
+      compression: true,
+      parent_recovery: true,
+    },
+    rag_fusion_rerank: {
+      retrieval_mode: 'rag_fusion',
+      multi_query: true,
+      rag_fusion: true,
+      rerank: true,
+      compression: true,
+    },
+  };
+  return evalExperimentPreset.value === 'current' ? options : { ...options, ...presets[evalExperimentPreset.value] };
+}
+
+function handleEvalFileChange(event) {
+  evalSelectedFile.value = event.target.files?.[0] || null;
+}
+
+async function uploadEvalSet() {
+  if (!evalSelectedFile.value) {
+    evalUploadMessage.value = '请选择 JSONL 评测集。';
+    return;
+  }
+  try {
+    const response = await fetch(`/api/v2/eval/upload?filename=${encodeURIComponent(evalSelectedFile.value.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-ndjson' },
+      body: evalSelectedFile.value,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.detail || `Request failed: ${response.status}`);
+    }
+    const result = await response.json();
+    evalSetPath.value = result.eval_set;
+    evalUploadMessage.value = `已载入 ${result.filename}，共 ${result.case_count} 条评测样本。`;
+  } catch (error) {
+    evalUploadMessage.value = `评测集上传失败：${error.message}`;
+  }
+}
+
+function reportDownloadUrl(path) {
+  const filename = String(path || '').split(/[\\/]/).pop();
+  return filename ? `/api/v2/eval/reports/${encodeURIComponent(filename)}` : '#';
 }
 
 window.addEventListener('hashchange', () => {
@@ -723,46 +884,94 @@ onMounted(loadBackendData);
               <option value="bm25">bm25</option>
               <option value="hybrid">hybrid</option>
               <option value="hybrid_rerank">hybrid + rerank</option>
+              <option value="parent_child">parent-child</option>
+              <option value="summary">summary</option>
+              <option value="rag_fusion">RAG-Fusion</option>
             </select>
-            <button class="primary-btn" type="button" @click="runRetrieval">执行检索</button>
+            <button class="primary-btn" type="button" :disabled="retrievalRunning" @click="runRetrieval">
+              {{ retrievalRunning ? '运行中...' : '执行完整 RAG 测试' }}
+            </button>
           </div>
-          <div class="filter-grid">
-            <label>
-              domain
-              <select v-model="retrievalDomain">
-                <option value="all">全部</option>
-                <option v-for="domain in domains" :key="domain.key" :value="domain.key">{{ domain.name }}</option>
-              </select>
-            </label>
-            <label>
-              doc_type
-              <select v-model="retrievalDocType">
-                <option value="all">全部</option>
-                <option v-for="type in docTypeOptions" :key="type" :value="type">{{ type }}</option>
-              </select>
-            </label>
-            <label>
-              vector_top_k
-              <input v-model.number="vectorTopK" type="number" min="1" max="100" />
-            </label>
-            <label>
-              final_top_k
-              <input v-model.number="finalTopK" type="number" min="1" max="20" />
-            </label>
-            <label class="check-row">
-              <input v-model="enableRerank" type="checkbox" />
-              rerank
-            </label>
+
+          <div class="strategy-console">
+            <section class="panel">
+              <div class="section-title">模型与召回配置</div>
+              <div class="filter-grid">
+                <label>Embedding<select v-model="retrievalEmbedding"><option>bge-large-zh</option><option>huggingface-local</option><option>qwen-embedding</option><option>openai</option><option>dashscope</option></select></label>
+                <label>Vector Store<select v-model="retrievalVectorstore"><option>chroma</option><option>faiss</option><option>qdrant</option><option>pgvector</option><option>milvus</option></select></label>
+                <label>domain<select v-model="retrievalDomain"><option value="all">全部</option><option v-for="domain in domains" :key="domain.key" :value="domain.key">{{ domain.name }}</option></select></label>
+                <label>doc_type<select v-model="retrievalDocType"><option value="all">全部</option><option v-for="type in docTypeOptions" :key="type" :value="type">{{ type }}</option></select></label>
+                <label>初召回 TopK<input v-model.number="vectorTopK" type="number" min="1" max="100" /></label>
+                <label>最终 TopK<input v-model.number="finalTopK" type="number" min="1" max="20" /></label>
+                <label>Vector 权重<input v-model.number="vectorWeight" type="number" min="0" max="1" step="0.1" /></label>
+                <label>BM25 权重<input v-model.number="bm25Weight" type="number" min="0" max="1" step="0.1" /></label>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title">预检索优化</div>
+              <div class="toggle-grid">
+                <label><input v-model="useQueryRewrite" type="checkbox" /> Query Rewrite</label>
+                <label><input v-model="useQueryExpansion" type="checkbox" /> Query Expansion</label>
+                <label><input v-model="useQueryTransformation" type="checkbox" /> Query Transformation</label>
+                <label><input v-model="useMetadataRouter" type="checkbox" /> Metadata Router</label>
+                <label><input v-model="useMultiQuery" type="checkbox" /> MultiQuery</label>
+                <label><input v-model="useHyde" type="checkbox" /> HyDE</label>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title">后检索优化</div>
+              <div class="toggle-grid">
+                <label><input v-model="enableRerank" type="checkbox" /> Rerank</label>
+                <label><input v-model="useCompression" type="checkbox" /> Context Compression</label>
+                <label><input v-model="useDeduplicate" type="checkbox" /> Deduplication</label>
+                <label><input v-model="useParentRecovery" type="checkbox" /> Parent Recovery</label>
+                <label><input v-model="useRagFusion" type="checkbox" /> RAG-Fusion / RRF</label>
+              </div>
+              <label class="compact-field">Compression<select v-model="compressionMode"><option>auto</option><option>sentence</option><option>keyword</option><option>table</option><option>llm</option></select></label>
+              <label class="compact-field">Reranker<select v-model="rerankModel"><option>score-fallback</option><option>bge-reranker-v2-m3</option><option>qwen-reranker</option><option>llm-rerank</option></select></label>
+            </section>
           </div>
-          <div class="button-row">
-            <button class="secondary-btn" type="button">复制为 API 请求</button>
-            <button class="secondary-btn" type="button">生成 Prompt Context</button>
+
+          <div v-if="retrievalTrace" class="trace-summary">
+            <section class="panel trace-answer">
+              <div class="section-title">最终回答</div>
+              <pre>{{ retrievalTrace.answer }}</pre>
+            </section>
+            <section class="panel">
+              <div class="section-title">Query Trace</div>
+              <dl class="trace-list">
+                <div><dt>trace_id</dt><dd>{{ retrievalTrace.trace_id }}</dd></div>
+                <div><dt>original</dt><dd>{{ retrievalTrace.original_query }}</dd></div>
+                <div><dt>rewrite</dt><dd>{{ retrievalTrace.rewritten_query }}</dd></div>
+                <div><dt>expanded</dt><dd>{{ retrievalTrace.expanded_queries.join(' | ') }}</dd></div>
+                <div><dt>metadata filter</dt><dd>{{ JSON.stringify(retrievalTrace.metadata_filter) }}</dd></div>
+                <div v-for="(value, key) in retrievalTrace.latency_ms" :key="key"><dt>{{ key }}</dt><dd>{{ value }} ms</dd></div>
+                <div><dt>tokens</dt><dd>{{ retrievalTrace.token_usage.input_tokens }} in / {{ retrievalTrace.token_usage.output_tokens }} out</dd></div>
+              </dl>
+            </section>
           </div>
+
+          <section v-if="retrievalTrace?.compressed_context?.length" class="panel">
+            <div class="section-title">Context Compression Trace</div>
+            <div class="trace-context-list">
+              <details v-for="(context, index) in retrievalTrace.compressed_context" :key="index">
+                <summary>#{{ index + 1 }} {{ retrievalTrace.reranked_docs[index]?.chunk_id }}</summary>
+                <strong>Before</strong>
+                <pre>{{ retrievalTrace.reranked_docs[index]?.content }}</pre>
+                <strong>After</strong>
+                <pre>{{ context }}</pre>
+              </details>
+            </div>
+          </section>
+
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>rank</th>
+                  <th>original_rank</th>
+                  <th>final_rank</th>
                   <th>chunk_id</th>
                   <th>score</th>
                   <th>domain</th>
@@ -776,7 +985,8 @@ onMounted(loadBackendData);
               </thead>
               <tbody>
                 <tr v-for="item in retrievalResult.items" :key="item.chunk_id">
-                  <td class="mono">{{ item.rank }}</td>
+                  <td class="mono">{{ item.originalRank ?? item.rank }}</td>
+                  <td class="mono">{{ item.finalRank ?? item.rank }}</td>
                   <td class="mono">{{ item.chunk_id }}</td>
                   <td class="mono">{{ item.score }}</td>
                   <td>{{ item.domain }}</td>
@@ -818,7 +1028,43 @@ onMounted(loadBackendData);
         </section>
 
         <section v-if="activePage === 'ragas'" class="page-grid">
-          <div class="section-title">RAGAS 评估中心</div>
+          <div class="toolbar section-toolbar">
+            <div class="section-title">RAGAS 与检索指标评估中心</div>
+            <button class="primary-btn" type="button" :disabled="evalRunning" @click="runBatchEvaluation">
+              {{ evalRunning ? '评测运行中...' : `运行 ${evalSetPath.split('/').pop()}` }}
+            </button>
+          </div>
+          <div class="panel eval-upload-row">
+            <label>
+              实验配置
+              <select v-model="evalExperimentPreset">
+                <option value="current">当前检索页配置</option>
+                <option value="vector_bge">Vector + BGE</option>
+                <option value="hybrid_bge_metadata">Hybrid + Metadata</option>
+                <option value="hybrid_parent_rerank_compress">Parent-Child + Rerank + Compression</option>
+                <option value="rag_fusion_rerank">RAG-Fusion + Rerank</option>
+              </select>
+            </label>
+            <label>
+              JSONL 评测集
+              <input type="file" accept=".jsonl,application/x-ndjson" @change="handleEvalFileChange" />
+            </label>
+            <button class="secondary-btn" type="button" @click="uploadEvalSet">上传并校验</button>
+            <code>{{ evalSetPath }}</code>
+            <p v-if="evalUploadMessage" class="notice">{{ evalUploadMessage }}</p>
+          </div>
+          <div v-if="evalResult" class="panel">
+            <div class="section-title">最新实验：{{ evalResult.experiment }}</div>
+            <div class="metric-grid">
+              <div v-for="(value, key) in evalResult.metrics" :key="key"><span>{{ key }}</span><strong>{{ value }}</strong></div>
+            </div>
+            <p class="notice">报告：{{ evalResult.report_files?.markdown }} · {{ evalResult.report_files?.json }} · {{ evalResult.report_files?.csv }}</p>
+          </div>
+          <div v-if="evalResult" class="report-actions">
+            <a v-for="(path, format) in evalResult.report_files" :key="format" class="secondary-btn" :href="reportDownloadUrl(path)">
+              下载 {{ String(format).toUpperCase() }}
+            </a>
+          </div>
           <div class="kpi-grid">
             <article v-for="metric in evaluation.metrics" :key="metric.name" class="kpi-card">
               <span>{{ metric.group }}</span>

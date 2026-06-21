@@ -77,6 +77,18 @@ npm install
 ## 构建检查
 
 ```powershell
-npm run build
-python -m py_compile backend/main.py
+python -m unittest discover -s tests -v
+python -m compileall -q app backend tests scripts
+npm run build -- --emptyOutDir=false
 ```
+
+## 可配置 RAG CLI
+
+```powershell
+python -m app.main ingest --config app/config/rag_config.yaml
+python -m app.main query --question "塔架一阶共振怎么判断？" --config app/config/rag_config.yaml
+python -m app.main eval --eval-set data/eval_sets/energy_rag_eval.jsonl --config app/config/eval_config.yaml
+python -m app.main experiment --config app/config/experiment_config.yaml
+```
+
+不指定 `--path` 时，入库命令扫描 `data/raw/`；也可以加 `--path "完整文件路径"` 只处理一个文件。

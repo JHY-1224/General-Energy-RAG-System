@@ -1,0 +1,32 @@
+experiments:
+  - name: vector_bge
+    embedding: bge-large-zh
+    retrieval_mode: vector
+    query_rewrite: false
+    query_expansion: false
+    metadata_router: false
+    rerank: false
+    compression: false
+  - name: hybrid_bge_metadata
+    embedding: bge-large-zh
+    retrieval_mode: hybrid
+    query_rewrite: true
+    query_expansion: true
+    metadata_router: true
+    rerank: false
+    compression: false
+  - name: hybrid_parent_rerank_compress
+    embedding: bge-large-zh
+    retrieval_mode: parent_child
+    query_rewrite: true
+    query_expansion: true
+    metadata_router: true
+    rerank: true
+    compression: true
+  - name: rag_fusion_rerank
+    embedding: bge-large-zh
+    retrieval_mode: rag_fusion
+    multi_query: true
+    rag_fusion: true
+    rerank: true
+    compression: true

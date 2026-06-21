@@ -1,0 +1,11 @@
+{"query_id":"q001","query":"AccY 是什么？","category":"变量解释","gold_doc_ids":["doc_wind_rules_001"],"ground_truth":"AccY 通常表示机舱或塔架 Y 向加速度，用于判断横向振动状态。"}
+{"query_id":"q002","query":"var_name_pow 代表什么？","category":"变量解释","gold_doc_ids":[],"ground_truth":"var_name_pow 通常表示实际功率或并网功率。"}
+{"query_id":"q010","query":"塔架一阶共振怎么判断？","category":"故障规则","gold_doc_ids":["doc_wind_rules_001"],"ground_truth":"塔架一阶共振通常结合加速度信号、FFT频谱峰值、一阶固有频率范围、RMS阈值和运行工况判断。"}
+{"query_id":"q011","query":"故障前为什么要看机舱加速度频谱？","category":"故障规则","gold_doc_ids":["doc_wind_rules_001"],"ground_truth":"机舱加速度频谱可以反映故障前振动能量在不同频率上的分布，有助于识别共振、冲击和周期性异常。"}
+{"query_id":"q020","query":"lag_96 在负荷预测中是什么意思？","category":"特征工程","gold_doc_ids":["doc_load_feature_001"],"ground_truth":"如果数据采样间隔为15分钟，lag_96 表示过去96个采样点，即前一天同一时刻负荷。"}
+{"query_id":"q021","query":"风电功率预测中风向为什么要做 sin cos 编码？","category":"特征工程","gold_doc_ids":[],"ground_truth":"风向是周期变量，0度和360度物理上接近，使用 sin/cos 编码可以保留周期连续性。"}
+{"query_id":"q030","query":"SOC 和 SOH 有什么区别？","category":"储能EMS","gold_doc_ids":["doc_storage_ems_001"],"ground_truth":"SOC 表示电池当前荷电状态，SOH 表示电池健康状态，前者描述当前剩余电量，后者描述容量衰减和健康程度。"}
+{"query_id":"q031","query":"储能削峰填谷怎么做？","category":"储能EMS","gold_doc_ids":[],"ground_truth":"储能削峰填谷通常在负荷低谷或电价低时充电，在负荷高峰或电价高时放电，从而平滑负荷曲线并降低用电成本。"}
+{"query_id":"q040","query":"变流器功率相关字段有哪些？","category":"表格问答","gold_doc_ids":[],"ground_truth":"需要从变量表或字段表中查找与变流器功率相关的字段，例如变流器1功率、变流器2功率、总功率等。"}
+{"query_id":"q050","query":"绘制叶轮转速应该怎么算？","category":"Agent案例","gold_doc_ids":[],"ground_truth":"叶轮转速通常由发电机转速除以传动比得到。"}
+{"query_id":"q051","query":"绘制总扭矩应该怎么算？","category":"Agent案例","gold_doc_ids":[],"ground_truth":"总扭矩通常由变流器扭矩1和变流器扭矩2相加得到。"}

@@ -67,3 +67,11 @@ __pycache__/
 
 # Agent files
 .agent/
+
+# Runtime knowledge and evaluation artifacts
+backend/uploaded_documents/
+data/traces/
+reports/eval_reports/*.json
+reports/eval_reports/*.csv
+reports/eval_reports/*.md
+!reports/eval_reports/sample_report.md
