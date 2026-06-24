@@ -15,6 +15,7 @@ const navItems = [
   { key: 'metadata', label: '元数据管理', icon: '◇' },
   { key: 'vector', label: '向量化与索引状态', icon: '◎' },
   { key: 'retrieval', label: 'RAG 检索测试', icon: '⌕' },
+  { key: 'graph', label: 'Graph-Enhanced RAG', icon: '⎔' },
   { key: 'api', label: 'API & SDK 接入中心', icon: '</>' },
   { key: 'ragas', label: 'RAGAS 评估中心', icon: '▥' },
   { key: 'open', label: '开源项目说明', icon: 'Git' },
@@ -86,6 +87,29 @@ const evalSelectedFile = ref(null);
 const evalSetPath = ref('data/eval_sets/energy_rag_eval.jsonl');
 const evalUploadMessage = ref('');
 const evalExperimentPreset = ref('current');
+const graphStatus = ref({
+  entity_count: 0,
+  relation_count: 0,
+  supported_domains: ['wind_oam', 'load_forecast', 'storage_ems'],
+  average_relation_hops: 0,
+  last_updated: null,
+  entity_type_distribution: {},
+  relation_type_distribution: {},
+});
+const graphQuery = ref('AccY 超限为什么可能关联塔架共振？');
+const graphMode = ref('hybrid_graph');
+const graphDomain = ref('');
+const graphResult = ref(null);
+const graphRunning = ref(false);
+const graphBuilding = ref(false);
+const graphMessage = ref('');
+const graphExamples = [
+  'AccY 超限为什么可能关联塔架共振？',
+  'lag_96 为什么能用于负荷预测？',
+  '负荷预测如何服务储能削峰填谷？',
+  'EMS、BMS、PCS 如何协同？',
+  'SOC 如何约束储能充放电策略？',
+];
 const retrievalResult = ref({
   query: retrievalQuery.value,
   mode: retrievalMode.value,
@@ -125,6 +149,7 @@ function setPage(key) {
   activePage.value = key;
   window.location.hash = `#/${key}`;
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (key === 'graph') loadGraphStatus();
 }
 
 function domainName(key) {
@@ -432,11 +457,68 @@ function reportDownloadUrl(path) {
   return filename ? `/api/v2/eval/reports/${encodeURIComponent(filename)}` : '#';
 }
 
+async function loadGraphStatus() {
+  try {
+    graphStatus.value = await apiGet('/api/v2/graph/status');
+  } catch (error) {
+    graphMessage.value = `图谱状态加载失败：${error.message}`;
+  }
+}
+
+async function buildEnergyGraph() {
+  graphBuilding.value = true;
+  try {
+    const result = await apiPost('/api/v2/graph/build', { domain: graphDomain.value || null, rebuild: true });
+    graphMessage.value = `构建完成：${result.entity_count} 个实体，${result.relation_count} 条关系。`;
+    await loadGraphStatus();
+  } catch (error) {
+    graphMessage.value = `图谱构建失败：${error.message}`;
+  } finally {
+    graphBuilding.value = false;
+  }
+}
+
+async function runGraphQuery() {
+  if (!graphQuery.value.trim()) return;
+  graphRunning.value = true;
+  try {
+    graphResult.value = await apiPost('/api/v2/graph/query', {
+      question: graphQuery.value,
+      options: {
+        mode: graphMode.value,
+        domain: graphDomain.value || null,
+        max_hops: 2,
+        top_k_entities: 10,
+        top_k_relations: 10,
+        include_chunk_context: true,
+        include_graph_context: true,
+      },
+    });
+    graphMessage.value = `查询完成：${graphResult.value.entities.length} 个实体，${graphResult.value.relations.length} 条关系。`;
+    await loadGraphStatus();
+  } catch (error) {
+    graphMessage.value = `图增强查询失败：${error.message}`;
+  } finally {
+    graphRunning.value = false;
+  }
+}
+
+function useGraphExample(question) {
+  graphQuery.value = question;
+}
+
+function graphEntityName(entityId) {
+  return graphResult.value?.entities.find((item) => item.entity_id === entityId)?.name || entityId;
+}
+
 window.addEventListener('hashchange', () => {
   activePage.value = readRoute();
 });
 
-onMounted(loadBackendData);
+onMounted(() => {
+  loadBackendData();
+  if (activePage.value === 'graph') loadGraphStatus();
+});
 </script>
 
 <template>
@@ -446,7 +528,7 @@ onMounted(loadBackendData);
         <div class="brand-mark">EA</div>
         <div>
           <strong>Energy O&M</strong>
-          <span>RAG Agent</span>
+          <span>RAG System</span>
         </div>
       </div>
       <nav class="nav-list">
@@ -482,8 +564,8 @@ onMounted(loadBackendData);
         <section v-if="activePage === 'dashboard'" class="page-grid">
           <div class="hero-panel">
             <div class="hero-mark">RAG</div>
-            <p>ENERGY O&M RAG AGENT</p>
-            <h1>Energy O&M RAG Agent</h1>
+            <p>ENERGY O&M RAG SYSTEM</p>
+            <h1>Energy O&M RAG System</h1>
             <span>面向风电故障诊断、区域负荷预测与储能 EMS 的能源智能运维知识库管理系统</span>
             <div class="hero-tags">
               <em>API-first</em>
@@ -1008,6 +1090,126 @@ onMounted(loadBackendData);
           <div class="citation-chain"><span v-for="node in retrievalResult.citationChain" :key="node">{{ node }}</span></div>
         </section>
 
+        <section v-if="activePage === 'graph'" class="page-grid graph-page">
+          <div class="graph-intro">
+            <div>
+              <p>LIGHTRAG-STYLE · OPTIONAL RETRIEVAL LAYER</p>
+              <h1>Graph-Enhanced Energy Retrieval</h1>
+              <span>面向能源知识链路的轻量图增强检索，用于实体关系、多跳路径和跨业务链路展示，不替代基础 Hybrid RAG。</span>
+            </div>
+            <div class="graph-capabilities">
+              <em>Local Retrieval</em><em>Global Retrieval</em><em>Hybrid Graph</em><em>Incremental-friendly</em>
+            </div>
+          </div>
+
+          <div class="toolbar graph-actions">
+            <select v-model="graphDomain">
+              <option value="">全部知识域</option>
+              <option value="wind_oam">wind_oam</option>
+              <option value="load_forecast">load_forecast</option>
+              <option value="storage_ems">storage_ems</option>
+            </select>
+            <button class="secondary-btn" type="button" :disabled="graphBuilding" @click="buildEnergyGraph">
+              {{ graphBuilding ? '构建中...' : '构建 / 刷新图谱' }}
+            </button>
+            <span v-if="graphMessage" class="notice">{{ graphMessage }}</span>
+          </div>
+
+          <div class="graph-stat-grid">
+            <article><span>实体数量</span><strong>{{ graphStatus.entity_count }}</strong></article>
+            <article><span>关系数量</span><strong>{{ graphStatus.relation_count }}</strong></article>
+            <article><span>支持知识域</span><strong>{{ graphStatus.supported_domains?.length || 0 }}</strong></article>
+            <article><span>平均关系跳数</span><strong>{{ graphStatus.average_relation_hops }}</strong></article>
+            <article><span>最近更新时间</span><strong class="graph-date">{{ graphStatus.last_updated || '尚未构建' }}</strong></article>
+          </div>
+
+          <div class="two-column graph-distributions">
+            <section class="panel">
+              <div class="section-title">实体类型分布</div>
+              <div v-if="Object.keys(graphStatus.entity_type_distribution || {}).length" class="distribution-list">
+                <div v-for="(count, type) in graphStatus.entity_type_distribution" :key="type">
+                  <span>{{ type }}</span><i :style="{ width: `${Math.min(100, count * 12)}%` }"></i><strong>{{ count }}</strong>
+                </div>
+              </div>
+              <p v-else class="notice">构建图谱后显示实体分布。</p>
+            </section>
+            <section class="panel">
+              <div class="section-title">关系类型分布</div>
+              <div v-if="Object.keys(graphStatus.relation_type_distribution || {}).length" class="distribution-list">
+                <div v-for="(count, type) in graphStatus.relation_type_distribution" :key="type">
+                  <span>{{ type }}</span><i :style="{ width: `${Math.min(100, count * 12)}%` }"></i><strong>{{ count }}</strong>
+                </div>
+              </div>
+              <p v-else class="notice">构建图谱后显示关系分布。</p>
+            </section>
+          </div>
+
+          <section class="graph-playground">
+            <div class="section-title">Graph Query Playground</div>
+            <div class="toolbar">
+              <input v-model="graphQuery" placeholder="输入实体关系或业务链路问题" @keyup.enter="runGraphQuery" />
+              <select v-model="graphMode">
+                <option value="naive">naive</option>
+                <option value="local_graph">local_graph</option>
+                <option value="global_graph">global_graph</option>
+                <option value="hybrid_graph">hybrid_graph</option>
+              </select>
+              <button class="primary-btn" type="button" :disabled="graphRunning" @click="runGraphQuery">
+                {{ graphRunning ? '查询中...' : '执行图增强检索' }}
+              </button>
+            </div>
+            <div class="graph-examples">
+              <button v-for="question in graphExamples" :key="question" type="button" @click="useGraphExample(question)">{{ question }}</button>
+            </div>
+          </section>
+
+          <template v-if="graphResult">
+            <div class="two-column graph-results">
+              <section class="panel">
+                <div class="section-title">Matched Entities</div>
+                <div class="entity-chip-list">
+                  <span v-for="entity in graphResult.entities" :key="entity.entity_id">
+                    <strong>{{ entity.name }}</strong><small>{{ entity.entity_type }} · {{ entity.domain }}</small>
+                  </span>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="section-title">Reasoning Path</div>
+                <ol class="reasoning-list">
+                  <li v-for="path in graphResult.reasoning_path" :key="path">{{ path }}</li>
+                </ol>
+                <p v-if="!graphResult.reasoning_path.length" class="notice">当前模式未生成多跳路径。</p>
+              </section>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>source</th><th>relation</th><th>target</th><th>domain</th><th>confidence</th><th>source_chunk_ids</th></tr></thead>
+                <tbody>
+                  <tr v-for="relation in graphResult.relations" :key="relation.relation_id">
+                    <td>{{ graphEntityName(relation.source_entity) }}</td>
+                    <td><span class="badge info">{{ relation.relation_type }}</span></td>
+                    <td>{{ graphEntityName(relation.target_entity) }}</td>
+                    <td>{{ relation.domain }}</td>
+                    <td class="mono">{{ relation.confidence }}</td>
+                    <td class="mono">{{ relation.source_chunk_ids.join(' / ') }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <section class="panel graph-context-output">
+              <div class="section-title">Prompt-ready Graph Context</div>
+              <pre>{{ graphResult.graph_context }}</pre>
+              <div class="graph-source-row">
+                <span>Related Chunk IDs</span>
+                <code v-for="chunkId in graphResult.related_chunk_ids" :key="chunkId">{{ chunkId }}</code>
+                <small>{{ graphResult.metadata?.latency_ms }} ms</small>
+              </div>
+            </section>
+          </template>
+        </section>
+
         <section v-if="activePage === 'api'" class="page-grid">
           <div class="section-title">API-first 接入中心</div>
           <div class="api-section-grid">
@@ -1121,7 +1323,7 @@ onMounted(loadBackendData);
         <section v-if="activePage === 'open'" class="page-grid">
           <div class="hero-panel compact">
             <p>GITHUB README STYLE</p>
-            <h1>Energy O&M RAG Agent</h1>
+            <h1>Energy O&M RAG System</h1>
             <span>面向风电故障诊断、区域负荷预测与储能 EMS 的能源智能运维知识库管理系统。</span>
           </div>
           <div class="two-column">

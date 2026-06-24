@@ -1,4 +1,4 @@
-# Vernova-RAG · Energy O&M RAG Agent
+# Vernova-RAG · Energy O&M RAG System
 
 面向风电故障诊断、区域负荷预测、风电功率预测、储能 EMS、电气工程基础和 Agent 案例库的本地化可配置 RAG 管理系统。
 
@@ -10,6 +10,7 @@ Vue Control Plane
   + Configurable RAG v2 Engine
   + 多 Loader / Splitter / Index / Retriever
   + Pre Retrieval / Post Retrieval Pipeline
+  + Optional LightRAG-style Graph-Enhanced Retrieval
   + Query Trace / Retrieval Metrics / RAGAS-Compatible Evaluation
   + Experiment Runner / JSON CSV Markdown Reports
 ```
@@ -147,6 +148,32 @@ Embedding 统一通过 `EmbeddingFactory` 选择：HuggingFace Local、BGE、Qwe
 - Parent Context Recovery：child 命中后补全 parent
 - RAG-Fusion / RRF：多 query 排名融合，默认 `k=60`
 
+## Graph-Enhanced Energy Retrieval
+
+`Graph-Enhanced Energy Retrieval` 是基础 RAG 之上的可选进阶层，参考 LightRAG 的 local / global / hybrid 双层检索思想，但不替换现有 Vector、BM25、RRF、Rerank 和 RAGAS 主线。
+
+```text
+RagChunk
+  -> 规则优先实体抽取
+  -> 能源关系抽取
+  -> 轻量 JSON Graph Store
+  -> Local / Global / Hybrid Graph Retrieval
+  -> Graph Context + Related Chunk Context
+```
+
+第一版特点：
+
+- 支持 `wind_oam`、`load_forecast`、`storage_ems` 三个能源知识域。
+- 实体类型包括 Variable、FaultType、Component、Feature、Model、Metric、System、Scenario、Strategy 等。
+- 关系包括 INDICATES、USED_FOR、INPUT_FEATURE_OF、SUPPORTS、CONSTRAINED_BY、PART_OF、EVIDENCED_BY 等。
+- `local_graph` 面向 AccY、lag_96、SOC 等具体实体的一跳/二跳检索。
+- `global_graph` 面向负荷预测到储能削峰填谷、EMS/BMS/PCS 协同等业务链路。
+- `hybrid_graph` 合并局部实体证据和全局多跳路径。
+- 默认存储为 `data/graph/energy_graph.json`，不强制引入 Neo4j。
+- 前端 `Graph-Enhanced RAG` 页面提供构图、统计分布、示例问题和 Prompt-ready Context。
+
+该模块不会改变 `/api/v2/query/test` 的默认行为。后续可把规则抽取替换为 LLM 抽取，把 JSON Store 替换为 Neo4j，或接入原生 LightRAG Runtime。
+
 ## 单问题测试与 Trace
 
 ```powershell
@@ -255,6 +282,11 @@ python -m app.main serve --port 8000
 - `POST /api/v2/eval/upload?filename=*.jsonl`
 - `GET /api/v2/eval/reports/{filename}`
 - `POST /api/v2/experiments/run`
+- `GET /api/v2/graph/status`
+- `POST /api/v2/graph/build`
+- `POST /api/v2/graph/query`
+- `GET /api/v2/graph/entities`
+- `GET /api/v2/graph/relations`
 
 FastAPI Swagger 提供完整请求模型：http://127.0.0.1:8000/docs
 
@@ -277,6 +309,7 @@ app/
   core/                # models 与 ConfigurableRagEngine
   embeddings/          # EmbeddingFactory
   evaluation/          # metrics/RAGAS/experiment/report
+  graph_retrieval/     # LightRAG-style energy graph layer
   indexes/             # vector/BM25/hybrid/metadata/parent/summary
   loaders/             # md/pdf/docx/html/csv/excel/chatml
   post_retrieval/      # rerank/compression/dedupe/filter/parent/RRF
@@ -286,6 +319,7 @@ app/
   splitters/           # recursive/header/parent-child/business
   vectorstores/        # Chroma/FAISS/Qdrant/pgvector/Milvus adapters
 data/eval_sets/        # JSONL 评测集
+data/graph/            # 运行时轻量图谱 JSON
 reports/eval_reports/  # JSON/CSV/Markdown 报告
 scripts/               # 示例入口
 tests/                 # 非破坏性单元测试
@@ -304,3 +338,4 @@ npm run build -- --emptyOutDir=false
 - 外部 Embedding、LLM、Reranker 和数据库使用可替换适配器；无凭据时走本地 fallback。
 - PDF/DOCX/Excel 在对应解析库缺失时使用占位解析，不阻断入库。
 - 所有数据为演示数据，生产诊断结论必须经过工程师复核。
+- Graph Retrieval 当前使用规则抽取与 JSON 图存储，是进阶展示模块，不是完整知识图谱平台或原生 LightRAG 实现。

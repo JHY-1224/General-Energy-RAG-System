@@ -1,3 +1,3 @@
-"""Configurable Energy O&M RAG application."""
+"""Configurable Energy O&M RAG System application."""
 
 __version__ = "2.0.0"

@@ -589,7 +589,7 @@ def build_state() -> dict:
 
 
 app = FastAPI(
-    title="Energy O&M RAG Agent API",
+    title="Energy O&M RAG System API",
     description="FastAPI backend for a Windows-friendly Energy O&M RAG management platform demo.",
     version="1.0.0",
 )
@@ -605,7 +605,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"name": "Energy O&M RAG Agent API", "status": "ok", "docs": "http://127.0.0.1:8000/docs"}
+    return {"name": "Energy O&M RAG System API", "status": "ok", "docs": "http://127.0.0.1:8000/docs"}
 
 
 @app.get("/api/health")

@@ -140,6 +140,7 @@ export const apiSections = [
   { group: 'Config API', items: ['GET /api/v2/config/options', 'GET /api/vector-index', 'GET /api/state'] },
   { group: 'Query & Trace API', items: ['POST /api/v2/query/test', 'GET /api/v2/traces/{trace_id}', 'POST /api/retrieval/search', 'POST /api/context/build'] },
   { group: 'Evaluation API', items: ['POST /api/v2/eval/run', 'POST /api/v2/eval/upload', 'GET /api/v2/eval/reports/{filename}', 'POST /api/v2/experiments/run'] },
+  { group: 'Graph Retrieval API', items: ['GET /api/v2/graph/status', 'POST /api/v2/graph/build', 'POST /api/v2/graph/query', 'GET /api/v2/graph/entities', 'GET /api/v2/graph/relations'] },
 ];
 
 export const contextApiExample = {

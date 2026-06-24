@@ -13,6 +13,10 @@
 
 Vernova-RAG 是能源电气领域的可配置 RAG 管理系统：
 
+- 官方产品名称：`Energy O&M RAG System`
+- 前端、API、README 和项目说明统一使用 `RAG System`，不要再使用 `RAG Agent` 作为产品名称。
+- `Agent 案例库`、`多 Agent` 等术语描述的是业务知识类别或技术架构，不属于产品品牌，可按语义保留。
+
 ```text
 Vue Control Plane + FastAPI + Configurable RAG Engine + Evaluation/Experiment Platform
 ```
@@ -21,7 +25,7 @@ Vue Control Plane + FastAPI + Configurable RAG Engine + Evaluation/Experiment Pl
 
 ## Current implementation status
 
-截至 2026-06-21，当前本地版本已完成：
+截至 2026-06-24，当前本地版本已完成：
 
 - FastAPI v1 `/api/*` 保持兼容，模块化 v2 `/api/v2/*` 已接入同一个应用。
 - 文档上传、处理、单文档删除与 v2 索引生命周期已同步。
@@ -32,7 +36,8 @@ Vue Control Plane + FastAPI + Configurable RAG Engine + Evaluation/Experiment Pl
 - 前端评测中心支持 JSONL 上传校验、实验预设、批量评测及 JSON/CSV/Markdown 报告下载。
 - 实验运行器输出分类指标、失败样例、对比报告和推荐实验。
 - 评测指标按 `doc_id` 保序去重，避免重复 Chunk 使 nDCG 超过 1。
-- 侧边栏保留 10 个核心入口；LlamaIndex Runtime 设计、RAG 问答演示、报告中心三个独立入口已移除。
+- 新增可选 `Graph-Enhanced Energy Retrieval`：规则实体/关系抽取、JSON 图存储、local/global/hybrid 图检索、图上下文和独立 API/前端页面。
+- 侧边栏保留 11 个核心入口；LlamaIndex Runtime 设计、RAG 问答演示、报告中心三个旧入口仍保持移除。
 
 ## Runtime entrypoints
 
@@ -54,12 +59,14 @@ Vue Control Plane + FastAPI + Configurable RAG Engine + Evaluation/Experiment Pl
 - 旧文档处理接口与 v2 引擎必须保持同步；处理时替换该文档 Chunk，删除时调用 `engine.remove_document()`。
 - 评测指标放 `app/evaluation/`，同时输出检索、RAGAS-compatible 和 latency/token 指标。
 - 新策略必须可以通过 `QueryOptions` 或 YAML 配置启用/关闭。
+- 图增强逻辑只能放在 `app/graph_retrieval/` 和独立 Graph API，不得替换基础 Hybrid Retrieval 默认路径。
 
 ## Core pipeline
 
 ```text
 loader -> cleaner -> table/structure parser -> splitter -> metadata -> indexes
 query -> rewrite/expand/transform/router -> retrieve/fusion -> rerank/compress/dedupe/parent -> answer -> trace -> evaluation
+optional graph -> entity/relation extraction -> JSON graph -> local/global/hybrid graph -> graph context
 ```
 
 ## Supported strategies
@@ -71,6 +78,7 @@ query -> rewrite/expand/transform/router -> retrieve/fusion -> rerank/compress/d
 - Post Retrieval：Rerank、Compression、Deduplication、Filter、Parent Recovery、RRF
 - Vector stores：Chroma、FAISS、Qdrant、pgvector、Milvus adapters
 - Embeddings：Local/HuggingFace、BGE、Qwen、OpenAI、DashScope adapters
+- Graph Retrieval：Naive、Local Graph、Global Graph、Hybrid Graph；默认不进入基础 Query API
 
 ## Data contracts
 
@@ -80,6 +88,8 @@ query -> rewrite/expand/transform/router -> retrieve/fusion -> rerank/compress/d
 - Table chunk 不得被普通 splitter 切碎，必须有 `table_id`。
 - Figure 接口保留 `figure_id`、caption 和 image path。
 - ChatML 一个案例一个 Case chunk。
+- Graph Entity 必须有稳定 `entity_id`、类型、domain 和 `source_chunk_ids`。
+- Graph Relation 必须有稳定 `relation_id`、合法关系类型、端点实体和来源 Chunk。
 
 ## Evaluation
 
@@ -103,7 +113,7 @@ npm ci
 npm run build -- --emptyOutDir=false
 ```
 
-2026-06-21 本地验证结果：Python 单元测试 4/4 通过、全模块编译通过、Vite 构建通过、FastAPI 接口烟测通过、浏览器检索与批量评测流程通过。全局 Python 环境的 `pip check` 存在其他项目包版本冲突，不属于 `backend/requirements.txt` 声明的依赖；生产部署应使用独立 `.venv`。
+2026-06-24 本地验证结果：Python 单元测试 7/7 通过、全模块编译通过、Vite 构建通过；Graph status/build/query/entities/relations API 烟测通过，现有 4 个 Demo Chunk 可构建 17 个实体与 20 条关系。全局 Python 环境的 `pip check` 存在其他项目包版本冲突，不属于 `backend/requirements.txt` 声明的依赖；生产部署应使用独立 `.venv`。
 
 ## GitHub publication
 
@@ -112,6 +122,7 @@ npm run build -- --emptyOutDir=false
 - CI：`.github/workflows/ci.yml`
 - 可以提交：源码、配置、示例评测集、`.gitkeep`、示例报告、测试和文档。
 - 禁止提交：`.env`、上传文件、`data/traces/`、生成的评测 JSON/CSV/Markdown、`node_modules/`、`dist/`、缓存。
+- `data/graph/energy_graph.json` 是运行时图索引，不提交；只保留 `data/graph/.gitkeep`。
 - 推送前先执行 `git status`、`git diff --check` 和上述验证命令。
 - 不要在 README、AGENTS、Issue 或 Commit 中粘贴 API Key、Token 或 GitHub 凭据。
 
@@ -139,3 +150,5 @@ npm run build -- --emptyOutDir=false
 - 无 ground truth 时不计算 answer_correctness。
 - HyDE、Summary、RAG-Fusion 默认关闭，不影响基础路径。
 - 无 `--path` 的 ingest 只扫描 `data/raw/` 下非隐藏普通文件，不处理 `.gitkeep`。
+- Graph Retrieval 是 LightRAG-style 轻量实现，当前不包含原生 LightRAG、Neo4j、社区摘要或 LLM 实体抽取。
+- Graph 模块默认独立运行，不改变 `/api/v2/query/test` 和现有 RAGAS 评估结果。

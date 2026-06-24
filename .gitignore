@@ -71,6 +71,7 @@ __pycache__/
 # Runtime knowledge and evaluation artifacts
 backend/uploaded_documents/
 data/traces/
+data/graph/*.json
 reports/eval_reports/*.json
 reports/eval_reports/*.csv
 reports/eval_reports/*.md

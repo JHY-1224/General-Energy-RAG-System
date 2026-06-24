@@ -101,3 +101,53 @@ class IngestRequest(BaseModel):
     chunk_size: int = 700
     chunk_overlap: int = 120
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EnergyEntity(BaseModel):
+    entity_id: str
+    name: str
+    entity_type: str
+    domain: str
+    description: str = ""
+    source_chunk_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EnergyRelation(BaseModel):
+    relation_id: str
+    source_entity: str
+    target_entity: str
+    relation_type: str
+    domain: str
+    description: str = ""
+    source_chunk_ids: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphRetrievalOptions(BaseModel):
+    mode: str = "hybrid_graph"
+    domain: str | None = None
+    max_hops: int = 2
+    top_k_entities: int = 10
+    top_k_relations: int = 10
+    include_chunk_context: bool = True
+    include_graph_context: bool = True
+
+
+class GraphRetrievalRequest(BaseModel):
+    question: str
+    options: GraphRetrievalOptions = Field(default_factory=GraphRetrievalOptions)
+
+
+class GraphRetrievalResponse(BaseModel):
+    question: str
+    mode: str
+    entities: list[EnergyEntity] = Field(default_factory=list)
+    relations: list[EnergyRelation] = Field(default_factory=list)
+    related_chunk_ids: list[str] = Field(default_factory=list)
+    graph_context: str = ""
+    chunk_context: str = ""
+    final_context: str = ""
+    reasoning_path: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)

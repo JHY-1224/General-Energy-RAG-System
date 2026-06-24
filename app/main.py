@@ -11,6 +11,7 @@ from app.api.routes_config import router as config_router
 from app.api.routes_eval import router as eval_router
 from app.api.routes_experiment import router as experiment_router
 from app.api.routes_ingest import router as ingest_router
+from app.api.routes_graph_retrieval import router as graph_retrieval_router
 from app.api.routes_query import router as query_router
 from app.config.loader import load_config
 from app.core.models import IngestRequest, QueryOptions, QueryRequest
@@ -28,6 +29,7 @@ app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(eval_router)
 app.include_router(experiment_router)
+app.include_router(graph_retrieval_router)
 
 
 def options_from_config(config: dict, override: dict | None = None) -> QueryOptions:
@@ -63,7 +65,7 @@ def options_from_config(config: dict, override: dict | None = None) -> QueryOpti
 
 
 def run_cli() -> None:
-    parser = argparse.ArgumentParser(description="Configurable Energy O&M RAG")
+    parser = argparse.ArgumentParser(description="Configurable Energy O&M RAG System")
     subparsers = parser.add_subparsers(dest="command")
     ingest_parser = subparsers.add_parser("ingest")
     ingest_parser.add_argument("--path", required=False)
