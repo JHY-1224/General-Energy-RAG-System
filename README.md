@@ -1,6 +1,6 @@
 # Vernova-RAG · Energy O&M RAG System
 
-面向风电故障诊断、区域负荷预测、风电功率预测、储能 EMS、电气工程基础和 Agent 案例库的本地化可配置 RAG 管理系统。
+面向风电故障诊断、区域负荷预测、风电功率预测、储能 EMS、电气工程基础和行业案例库的本地化可配置 RAG 管理系统。
 
 项目已经从固定 Demo 升级为：
 
@@ -135,7 +135,7 @@ Embedding 统一通过 `EmbeddingFactory` 选择：HuggingFace Local、BGE、Qwe
 - Query Rewrite：补全口语、省略和指代
 - Query Expansion：加入中文名、英文名、字段名、变量名、单位和同义词
 - Query Transformation：生成 metadata filter 或结构化意图
-- Metadata Router：识别风电、负荷、储能、电气工程和 Agent 案例域
+- Metadata Router：识别风电、负荷、储能、电气工程和行业案例域
 - MultiQuery：生成多个查询提高召回
 - HyDE：生成假设文档再检索，实验项，默认关闭
 

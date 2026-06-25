@@ -1329,7 +1329,7 @@ onMounted(() => {
           <div class="two-column">
             <section class="panel">
               <div class="section-title">项目边界</div>
-              <p>本项目聚焦能源领域 RAG 管理平台，不做完整风机诊断生产系统，不做完整储能 EMS 调度系统，不做复杂多 Agent 平台。</p>
+              <p>本项目聚焦能源领域 RAG 管理平台，不做完整风机诊断生产系统，不做完整储能 EMS 调度系统，不做复杂自动化编排平台。</p>
               <div class="section-title">核心能力</div>
               <div class="tag-line">
                 <span>知识资产管理</span><span>文档解析</span><span>Chunk 与 Metadata</span><span>LlamaIndex Runtime</span>
