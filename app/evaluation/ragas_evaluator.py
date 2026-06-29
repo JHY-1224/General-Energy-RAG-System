@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.embeddings.embedding_factory import tokenize
+from app.evaluation.ragas_diagnostics import diagnose_sample, diagnose_scores
 
 
 def _overlap(left: str, right: str) -> float:
@@ -24,3 +25,29 @@ class RagasEvaluator:
             "context_entity_recall": round(_overlap(context, question), 4),
         }
         return metrics
+
+    def diagnose(self, metrics: dict[str, float | None]) -> dict:
+        return diagnose_scores(metrics)
+
+    def evaluate_sample(
+        self,
+        question: str,
+        answer: str,
+        contexts: list[str],
+        ground_truth: str | None,
+        retrieved_chunk_ids: list[str] | None = None,
+        reference_context_ids: list[str] | None = None,
+    ) -> dict:
+        metrics = self.evaluate(question, answer, contexts, ground_truth)
+        diagnosis = diagnose_sample(
+            {key: value for key, value in metrics.items() if value is not None},
+            reference_context_ids=reference_context_ids,
+            retrieved_chunk_ids=retrieved_chunk_ids,
+        )
+        return {
+            "metrics": metrics,
+            "failure_type": diagnosis.get("primary_failure_type"),
+            "root_cause": diagnosis.get("root_cause"),
+            "optimization_suggestion": "；".join(diagnosis.get("suggestions", [])),
+            "diagnosis": diagnosis,
+        }

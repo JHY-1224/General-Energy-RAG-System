@@ -24,7 +24,9 @@ class ReportGenerator:
         lines.extend(f"| {key} | {value} |" for key, value in metrics.items())
         lines.extend(["", "## Failed Cases", ""])
         for item in report.get("failed_cases", []):
-            lines.append(f"- `{item.get('query_id')}` {item.get('query')} - {item.get('reason')}")
+            question = item.get("query") or item.get("question")
+            reason = item.get("reason") or item.get("root_cause") or item.get("failure_type")
+            lines.append(f"- `{item.get('query_id')}` {question} - {reason}")
         md_path.write_text("\n".join(lines), encoding="utf-8")
         return {"json": str(json_path), "csv": str(csv_path), "markdown": str(md_path)}
 

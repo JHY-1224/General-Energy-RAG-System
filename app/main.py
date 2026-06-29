@@ -8,7 +8,7 @@ import uvicorn
 
 from app.api.dependencies import bootstrap_legacy_chunks, engine
 from app.api.routes_config import router as config_router
-from app.api.routes_eval import router as eval_router
+from app.api.routes_eval import evaluation_router, router as eval_router
 from app.api.routes_experiment import router as experiment_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_graph_retrieval import router as graph_retrieval_router
@@ -28,6 +28,7 @@ app.include_router(config_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(eval_router)
+app.include_router(evaluation_router)
 app.include_router(experiment_router)
 app.include_router(graph_retrieval_router)
 

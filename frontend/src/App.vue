@@ -87,6 +87,13 @@ const evalSelectedFile = ref(null);
 const evalSetPath = ref('data/eval_sets/energy_rag_eval.jsonl');
 const evalUploadMessage = ref('');
 const evalExperimentPreset = ref('current');
+const evalDiagnosisScores = ref({
+  faithfulness: 0.62,
+  answer_relevancy: 0.85,
+  context_precision: 0.76,
+  context_recall: 0.48,
+});
+const evalDiagnosisResult = ref(clone(demoState.evaluation.automatic_diagnosis));
 const graphStatus = ref({
   entity_count: 0,
   relation_count: 0,
@@ -123,6 +130,33 @@ const overview = computed(() => state.value.overview);
 const vectorConfig = computed(() => state.value.vectorConfig);
 const runtime = computed(() => state.value.runtime);
 const evaluation = computed(() => state.value.evaluation);
+const ragasMetricKeys = ['faithfulness', 'answer_relevancy', 'context_precision', 'context_recall'];
+const ragasMetricLabels = {
+  faithfulness: 'Faithfulness 忠实度',
+  answer_relevancy: 'Answer Relevancy 答案相关性',
+  context_precision: 'Context Precision 检索精确度',
+  context_recall: 'Context Recall 检索召回率',
+};
+const ragasMetricCards = computed(() => {
+  if (evaluation.value?.metric_cards?.length) return evaluation.value.metric_cards;
+  return (evaluation.value?.metrics || [])
+    .filter((metric) => ragasMetricKeys.includes(metric.name))
+    .map((metric) => ({
+      key: metric.name,
+      title: ragasMetricLabels[metric.name] || metric.name,
+      current_avg: metric.value,
+      previous_avg: metric.value,
+      delta: 0,
+      definition: 'RAGAS-compatible 离线评估指标。',
+      low_score_signals: ['需要结合失败样本进一步定位。'],
+      optimization_methods: ['检查检索配置与生成约束。'],
+    }));
+});
+const evaluationDatasets = computed(() => evaluation.value?.datasets || []);
+const evaluationRuns = computed(() => evaluation.value?.runs || []);
+const evaluationFailures = computed(() => evaluation.value?.failures || []);
+const evaluationSampleResults = computed(() => evaluation.value?.sample_results || []);
+const primarySampleResult = computed(() => evaluationSampleResults.value[0] || null);
 const selectedDocument = computed(() =>
   state.value.documents.find((item) => item.document_id === selectedDocumentId.value) || state.value.documents[0],
 );
@@ -150,6 +184,7 @@ function setPage(key) {
   window.location.hash = `#/${key}`;
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (key === 'graph') loadGraphStatus();
+  if (key === 'ragas') loadEvaluationCenter();
 }
 
 function domainName(key) {
@@ -379,6 +414,7 @@ async function runBatchEvaluation() {
     });
     apiOnline.value = true;
     apiMessage.value = '批量评测完成';
+    await loadEvaluationCenter();
   } catch (error) {
     apiMessage.value = `批量评测失败：${error.message}`;
   } finally {
@@ -452,6 +488,122 @@ async function uploadEvalSet() {
   }
 }
 
+function mergeEvaluationSummary(summary) {
+  if (!summary) return;
+  state.value = {
+    ...state.value,
+    evaluation: {
+      ...state.value.evaluation,
+      ...summary,
+    },
+  };
+  if (summary.automatic_diagnosis) {
+    evalDiagnosisResult.value = summary.automatic_diagnosis;
+  }
+}
+
+async function loadEvaluationCenter() {
+  try {
+    const summary = await apiGet('/api/v1/evaluation/metrics/summary');
+    mergeEvaluationSummary(summary);
+    apiOnline.value = true;
+    apiMessage.value = 'RAGAS 评估中心已连接';
+  } catch {
+    mergeEvaluationSummary(state.value.evaluation);
+  }
+}
+
+function clampScore(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function formatScore(value) {
+  return clampScore(value).toFixed(2);
+}
+
+function scorePercent(value) {
+  return `${Math.round(clampScore(value) * 100)}%`;
+}
+
+function formatDelta(value) {
+  const numeric = Number(value || 0);
+  return `${numeric >= 0 ? '+' : ''}${numeric.toFixed(2)}`;
+}
+
+function datasetSamples(dataset) {
+  return dataset.samples || [dataset];
+}
+
+function datasetSampleCount(dataset) {
+  return dataset.sample_count || datasetSamples(dataset).length;
+}
+
+function firstDatasetSample(dataset) {
+  return datasetSamples(dataset)[0] || {};
+}
+
+function sampleMetric(sample, key) {
+  return sample?.metrics?.[key] ?? sample?.[key] ?? '-';
+}
+
+function diagnoseLocally(scores) {
+  const normalized = Object.fromEntries(ragasMetricKeys.map((key) => [key, clampScore(scores[key])]));
+  const triggered = [];
+  if (normalized.context_recall < 0.7) {
+    triggered.push({
+      primary_failure_type: 'retrieval_miss',
+      root_cause: '必要证据召回不足，可能导致模型基于不完整上下文回答。',
+      suggestions: ['提高 top_k', '增加 Query Expansion', '启用 Parent Document Retriever', '检查 metadata filter 是否过窄'],
+    });
+  }
+  if (normalized.context_precision < 0.7) {
+    triggered.push({
+      primary_failure_type: 'bad_ranking',
+      root_cause: '相关 Chunk 排名靠后或 Top-K 混入无关内容。',
+      suggestions: ['启用 Rerank', '加强 Metadata Filter', '调整 BM25 权重', '优化 Chunk 粒度'],
+    });
+  }
+  if (normalized.faithfulness < 0.8) {
+    triggered.push({
+      primary_failure_type: 'hallucination',
+      root_cause: '答案存在 retrieved_contexts 未支持内容。',
+      suggestions: ['加强 Prompt 证据约束', '强制引用来源', '开启无证据拒答', '压缩无关上下文'],
+    });
+  }
+  if (normalized.answer_relevancy < 0.8) {
+    triggered.push({
+      primary_failure_type: 'off_topic',
+      root_cause: '答案与问题匹配度不足，可能偏题或没有正面回答。',
+      suggestions: ['增加 Query Rewrite', '启用 Intent Router', '补充 Few-shot 示例', '使用结构化输出模板'],
+    });
+  }
+  const primary = triggered[0];
+  return primary
+    ? {
+        primary_failure_type: primary.primary_failure_type,
+        root_cause: primary.root_cause,
+        suggestions: [...new Set(triggered.flatMap((item) => item.suggestions))],
+        triggered_rules: triggered,
+      }
+    : {
+        primary_failure_type: null,
+        root_cause: '四个核心指标均处于可接受区间。',
+        suggestions: ['保持当前检索配置', '继续扩充覆盖低频问题的评测样本', '定期观察趋势和失败样本'],
+        triggered_rules: [],
+      };
+}
+
+async function runEvaluationDiagnosis() {
+  try {
+    evalDiagnosisResult.value = await apiPost('/api/v1/evaluation/diagnose', evalDiagnosisScores.value);
+    apiOnline.value = true;
+  } catch {
+    evalDiagnosisResult.value = diagnoseLocally(evalDiagnosisScores.value);
+  }
+}
+
 function reportDownloadUrl(path) {
   const filename = String(path || '').split(/[\\/]/).pop();
   return filename ? `/api/v2/eval/reports/${encodeURIComponent(filename)}` : '#';
@@ -513,11 +665,13 @@ function graphEntityName(entityId) {
 
 window.addEventListener('hashchange', () => {
   activePage.value = readRoute();
+  if (activePage.value === 'ragas') loadEvaluationCenter();
 });
 
 onMounted(() => {
   loadBackendData();
   if (activePage.value === 'graph') loadGraphStatus();
+  if (activePage.value === 'ragas') loadEvaluationCenter();
 });
 </script>
 
@@ -1231,11 +1385,15 @@ onMounted(() => {
 
         <section v-if="activePage === 'ragas'" class="page-grid">
           <div class="toolbar section-toolbar">
-            <div class="section-title">RAGAS 与检索指标评估中心</div>
+            <div>
+              <div class="section-title">RAGAS 评估中心</div>
+              <p class="section-subtitle">围绕 Faithfulness、Answer Relevancy、Context Precision、Context Recall 形成检索与生成质量闭环。</p>
+            </div>
             <button class="primary-btn" type="button" :disabled="evalRunning" @click="runBatchEvaluation">
               {{ evalRunning ? '评测运行中...' : `运行 ${evalSetPath.split('/').pop()}` }}
             </button>
           </div>
+
           <div class="panel eval-upload-row">
             <label>
               实验配置
@@ -1255,6 +1413,7 @@ onMounted(() => {
             <code>{{ evalSetPath }}</code>
             <p v-if="evalUploadMessage" class="notice">{{ evalUploadMessage }}</p>
           </div>
+
           <div v-if="evalResult" class="panel">
             <div class="section-title">最新实验：{{ evalResult.experiment }}</div>
             <div class="metric-grid">
@@ -1267,57 +1426,244 @@ onMounted(() => {
               下载 {{ String(format).toUpperCase() }}
             </a>
           </div>
-          <div class="kpi-grid">
-            <article v-for="metric in evaluation.metrics" :key="metric.name" class="kpi-card">
-              <span>{{ metric.group }}</span>
-              <strong>{{ metric.value }}</strong>
-              <small>{{ metric.name }}</small>
+
+          <div class="ragas-kpi-grid">
+            <article v-for="metric in ragasMetricCards" :key="metric.key" class="ragas-metric-card">
+              <div class="metric-card-head">
+                <span>{{ metric.evaluation_object || 'RAGAS' }}</span>
+                <strong>{{ formatScore(metric.current_avg) }}</strong>
+              </div>
+              <h2>{{ metric.title }}</h2>
+              <div class="score-line">
+                <span :style="{ width: scorePercent(metric.current_avg) }"></span>
+              </div>
+              <dl class="compact-dl">
+                <div><dt>上次评估</dt><dd>{{ formatScore(metric.previous_avg) }}</dd></div>
+                <div><dt>变化趋势</dt><dd :class="metric.delta >= 0 ? 'score-up' : 'score-down'">{{ formatDelta(metric.delta) }}</dd></div>
+              </dl>
+              <p>{{ metric.definition }}</p>
+              <small>低分含义：{{ metric.low_score_signals?.[0] }}</small>
+              <small>优化入口：{{ metric.optimization_methods?.[0] }}</small>
             </article>
           </div>
+
+          <section class="panel">
+            <div class="section-title">四大指标说明</div>
+            <div class="metric-explain-grid">
+              <article v-for="metric in ragasMetricCards" :key="`explain-${metric.key}`" class="metric-explain">
+                <h3>{{ metric.title }}</h3>
+                <p>{{ metric.definition }}</p>
+                <p><strong>公式：</strong>{{ metric.formula }}</p>
+                <p><strong>实际含义：</strong>{{ metric.meaning || '用于定位 RAG 检索或生成链路的质量问题。' }}</p>
+                <div class="mini-columns">
+                  <div>
+                    <strong>低分表现</strong>
+                    <ul>
+                      <li v-for="item in metric.low_score_signals?.slice(0, 4)" :key="item">{{ item }}</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong>优化方式</strong>
+                    <ul>
+                      <li v-for="item in metric.optimization_methods?.slice(0, 4)" :key="item">{{ item }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
           <div class="two-column">
             <section class="panel">
-              <div class="section-title">评估数据集</div>
-              <div v-for="item in evaluation.datasets" :key="item.eval_id" class="list-row">
-                <strong>{{ item.question }}</strong>
-                <span>{{ item.eval_id }} · {{ item.domain }} · {{ item.difficulty }}</span>
+              <div class="section-title">评估数据集管理</div>
+              <div v-for="dataset in evaluationDatasets" :key="dataset.dataset_id || dataset.eval_id" class="list-row rich">
+                <strong>{{ dataset.name || firstDatasetSample(dataset).question }}</strong>
+                <span>{{ dataset.dataset_id || firstDatasetSample(dataset).eval_id }} · {{ dataset.domain || firstDatasetSample(dataset).domain }} · {{ datasetSampleCount(dataset) }} samples</span>
+                <small>{{ firstDatasetSample(dataset).question }}</small>
+                <code>{{ (firstDatasetSample(dataset).reference_context_ids || firstDatasetSample(dataset).expected_chunk_ids || []).join(' / ') }}</code>
               </div>
             </section>
+
             <section class="panel">
-              <div class="section-title">单次评估运行</div>
-              <div v-for="run in evaluation.runs" :key="run.run_id" class="list-row">
+              <div class="section-title">评估运行记录</div>
+              <div v-for="run in evaluationRuns" :key="run.run_id" class="list-row rich">
                 <strong>{{ run.run_id }}</strong>
-                <span>{{ run.embedding_model }} · {{ run.vector_db }} · {{ run.reranker_model }}</span>
+                <span>{{ run.eval_dataset }} · {{ run.embedding_model }} · {{ run.vector_db }} · top_k={{ run.top_k }}</span>
+                <small>{{ run.retriever_config || run.retrieval_config }} · {{ statusLabel(run.status) }} · {{ run.started_at }} → {{ run.finished_at }}</small>
+                <code>F {{ formatScore(run.avg_faithfulness) }} · AR {{ formatScore(run.avg_answer_relevancy) }} · CP {{ formatScore(run.avg_context_precision) }} · CR {{ formatScore(run.avg_context_recall) }}</code>
               </div>
             </section>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>question</th>
-                  <th>ground_truth</th>
-                  <th>actual_answer</th>
-                  <th>expected_chunk_ids</th>
-                  <th>retrieved_chunk_ids</th>
-                  <th>failed_type</th>
-                  <th>metric_scores</th>
-                  <th>improvement_suggestion</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in evaluation.failures" :key="item.question">
-                  <td>{{ item.question }}</td>
-                  <td>{{ item.ground_truth }}</td>
-                  <td>{{ item.actual_answer }}</td>
-                  <td>{{ item.expected_chunk_ids.join(' / ') }}</td>
-                  <td>{{ item.retrieved_chunk_ids.join(' / ') }}</td>
-                  <td><span class="badge danger">{{ item.failed_type }}</span></td>
-                  <td>{{ item.metric_scores }}</td>
-                  <td>{{ item.improvement_suggestion }}</td>
-                </tr>
-              </tbody>
-            </table>
+
+          <section v-if="primarySampleResult" class="panel">
+            <div class="section-title">单样本评估详情</div>
+            <div class="sample-detail-grid">
+              <div>
+                <span class="eyebrow">{{ primarySampleResult.eval_id }}</span>
+                <h3>{{ primarySampleResult.question }}</h3>
+                <p><strong>Ground Truth：</strong>{{ primarySampleResult.ground_truth }}</p>
+                <p><strong>Generated Answer：</strong>{{ primarySampleResult.generated_answer || primarySampleResult.answer }}</p>
+                <p><strong>Failure Type：</strong><span :class="primarySampleResult.failure_type ? 'badge danger' : 'badge success'">{{ primarySampleResult.failure_type || 'normal' }}</span></p>
+                <p><strong>Optimization：</strong>{{ primarySampleResult.optimization_suggestion || primarySampleResult.suggestion }}</p>
+              </div>
+              <div class="metric-grid compact">
+                <div v-for="key in ragasMetricKeys" :key="key">
+                  <span>{{ key }}</span>
+                  <strong>{{ sampleMetric(primarySampleResult, key) }}</strong>
+                </div>
+              </div>
+            </div>
+            <div class="two-column">
+              <div class="context-box">
+                <strong>reference_context_ids</strong>
+                <code>{{ primarySampleResult.reference_context_ids?.join(' / ') }}</code>
+              </div>
+              <div class="context-box">
+                <strong>retrieved_chunk_ids</strong>
+                <code>{{ primarySampleResult.retrieved_chunk_ids?.join(' / ') }}</code>
+              </div>
+            </div>
+            <details class="trace-context-list">
+              <summary>retrieved_contexts / trace</summary>
+              <pre>{{ JSON.stringify({ contexts: primarySampleResult.retrieved_contexts, trace: primarySampleResult.trace }, null, 2) }}</pre>
+            </details>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">失败样本分析</div>
+            <div class="failure-type-grid">
+              <span v-for="item in evaluation.failure_types || []" :key="item.type"><strong>{{ item.type }}</strong><small>{{ item.description }} · {{ item.metric }}</small></span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>question</th>
+                    <th>domain</th>
+                    <th>actual_answer</th>
+                    <th>expected_chunk_ids</th>
+                    <th>retrieved_chunk_ids</th>
+                    <th>scores</th>
+                    <th>failure_type</th>
+                    <th>root_cause</th>
+                    <th>optimization_suggestion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in evaluationFailures" :key="item.question">
+                    <td>{{ item.question }}</td>
+                    <td>{{ item.domain }}</td>
+                    <td>{{ item.actual_answer || item.generated_answer }}</td>
+                    <td>{{ (item.expected_chunk_ids || item.reference_context_ids || []).join(' / ') }}</td>
+                    <td>{{ item.retrieved_chunk_ids?.join(' / ') }}</td>
+                    <td>F {{ item.faithfulness }} / AR {{ item.answer_relevancy }} / CP {{ item.context_precision }} / CR {{ item.context_recall }}</td>
+                    <td><span class="badge danger">{{ item.failure_type || item.failed_type }}</span></td>
+                    <td>{{ item.root_cause }}</td>
+                    <td>{{ item.optimization_suggestion || item.improvement_suggestion }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <div class="two-column">
+            <section class="panel">
+              <div class="section-title">自动优化建议</div>
+              <div class="diagnosis-form">
+                <label v-for="key in ragasMetricKeys" :key="key">
+                  {{ key }}
+                  <input v-model.number="evalDiagnosisScores[key]" type="number" min="0" max="1" step="0.01" />
+                </label>
+                <button class="secondary-btn" type="button" @click="runEvaluationDiagnosis">诊断</button>
+              </div>
+              <div class="diagnosis-result">
+                <strong>{{ evalDiagnosisResult?.primary_failure_type || 'normal' }}</strong>
+                <p>{{ evalDiagnosisResult?.root_cause }}</p>
+                <ul>
+                  <li v-for="item in evalDiagnosisResult?.suggestions || []" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title">指标趋势图</div>
+              <div class="trend-chart">
+                <div v-for="row in evaluation.trend || []" :key="row.date" class="trend-column">
+                  <div class="trend-bars">
+                    <i v-for="key in ragasMetricKeys" :key="key" :style="{ height: scorePercent(row[key]) }" :title="`${key}: ${row[key]}`"></i>
+                  </div>
+                  <span>{{ row.date.slice(5) }}</span>
+                </div>
+              </div>
+              <div class="trend-legend">
+                <span v-for="key in ragasMetricKeys" :key="key">{{ key }}</span>
+              </div>
+            </section>
           </div>
+
+          <section class="panel">
+            <div class="section-title">能源场景评估说明</div>
+            <div class="scenario-grid">
+              <article v-for="scenario in evaluation.energy_scenarios || []" :key="scenario.domain">
+                <h3>{{ scenario.name }}</h3>
+                <p>{{ scenario.domain }}</p>
+                <dl class="compact-dl">
+                  <div v-for="[metric, note] in Object.entries(scenario.metric_notes || {})" :key="metric">
+                    <dt>{{ metric }}</dt>
+                    <dd>{{ note }}</dd>
+                  </div>
+                </dl>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">指标和优化方式总表</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>指标</th><th>评估对象</th><th>低分表现</th><th>优化方向</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in evaluation.metric_guide || []" :key="item.metric">
+                    <td>{{ item.metric }}</td>
+                    <td>{{ item.object }}</td>
+                    <td>{{ item.low_score }}</td>
+                    <td>{{ item.optimization }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">不同检索配置的评估对比</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>config_name</th><th>embedding_model</th><th>retrieval_mode</th><th>vector_top_k</th><th>bm25_top_k</th><th>rerank_enabled</th>
+                    <th>faithfulness</th><th>answer_relevancy</th><th>context_precision</th><th>context_recall</th><th>avg_latency_ms</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in evaluation.config_comparisons || []" :key="item.config_name">
+                    <td>{{ item.config_name }}</td>
+                    <td>{{ item.embedding_model }}</td>
+                    <td>{{ item.retrieval_mode }}</td>
+                    <td>{{ item.vector_top_k }}</td>
+                    <td>{{ item.bm25_top_k }}</td>
+                    <td>{{ item.rerank_enabled ? 'yes' : 'no' }}</td>
+                    <td>{{ item.faithfulness }}</td>
+                    <td>{{ item.answer_relevancy }}</td>
+                    <td>{{ item.context_precision }}</td>
+                    <td>{{ item.context_recall }}</td>
+                    <td>{{ item.avg_latency_ms }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
         </section>
 
         <section v-if="activePage === 'open'" class="page-grid">
